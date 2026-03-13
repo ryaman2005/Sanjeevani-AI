@@ -9,7 +9,7 @@ router = APIRouter(prefix="/profiles", tags=["profiles"])
 
 # Supabase setup
 url: str = os.environ.get("SUPABASE_URL", "")
-key: str = os.environ.get("SUPABASE_ANON_KEY", "")
+key: str = os.environ.get("SUPABASE_SERVICE_KEY", "")
 supabase: Client = create_client(url, key)
 
 class ProfileUpdate(BaseModel):

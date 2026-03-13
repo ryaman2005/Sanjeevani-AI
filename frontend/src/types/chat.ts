@@ -1,7 +1,8 @@
 export interface DiagnosisResult {
-  severity: "Urgent" | "Medium" | "Low";
+  severity: "Urgent" | "Medium" | "Low" | "Unknown" | "URGENT";
   diseases: { name: string; confidence: number }[];
   advice: string;
+  narrative?: string;
 }
 
 export interface ChatMessage {

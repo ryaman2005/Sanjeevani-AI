@@ -81,10 +81,16 @@ export default function ChatPage() {
 
       const data = await res.json();
 
+      // Handle multimodal fusion response structure
+      const diseases = data.primary_diagnosis 
+        ? [data.primary_diagnosis, ...(data.secondary_diagnoses || [])]
+        : (data.diseases || data.top_diseases || [{ name: "Unknown", confidence: 0 }]);
+
       const diagnosis: DiagnosisResult = {
         severity: data.severity || "Medium",
-        diseases: data.diseases || data.top_diseases || [{ name: "Unknown", confidence: 0 }],
+        diseases: diseases,
         advice: data.advice || data.medical_advice || "Please consult a healthcare professional.",
+        narrative: data.narrative
       };
 
       const aiMsg: ChatMessage = {

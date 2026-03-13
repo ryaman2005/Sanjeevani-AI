@@ -4,6 +4,7 @@ from typing import Optional
 
 from services.symptom_analyzer import analyze_symptoms, SymptomRequest
 from services.image_analyzer import analyze_medical_image
+from services.llm_service import fuse_diagnoses
 
 router = APIRouter(prefix="/analyze", tags=["analysis"])
 
@@ -36,17 +37,19 @@ async def analyze_combined_route(
     symp_results = await analyze_symptoms(symp_req)
     
     # 2. Analyze image if provided
-    img_results = None
+    img_results = {
+        "findings": "No image uploaded.",
+        "conditions": [],
+        "confidence": 0
+    }
     if file:
         img_results = await analyze_medical_image(file)
         
-    # 3. Combine results (Simplified for MVP)
-    combined = {
-        "symptom_analysis": symp_results,
-        "image_analysis": img_results,
-        "primary_diagnosis": symp_results.get("diagnoses", [{}])[0] if "diagnoses" in symp_results else None,
-        "severity": symp_results.get("severity", "Unknown"),
-        "advice": symp_results.get("advice", "Review case manually.")
-    }
+    # 3. Use AI Fusion Layer (Phase 5.1)
+    combined_results = await fuse_diagnoses(symp_results, img_results)
     
-    return combined
+    # 4. Attach original individual analyses for UI transparency
+    combined_results["symptom_analysis"] = symp_results
+    combined_results["image_analysis"] = img_results
+    
+    return combined_results

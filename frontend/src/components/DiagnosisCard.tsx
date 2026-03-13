@@ -27,7 +27,9 @@ const severityConfig = {
 };
 
 export function DiagnosisCard({ diagnosis }: { diagnosis: DiagnosisResult }) {
-  const config = severityConfig[diagnosis.severity];
+  // Normalize severity for config lookup (URGENT -> Urgent)
+  const normalizedSeverity = diagnosis.severity === "URGENT" ? "Urgent" : diagnosis.severity;
+  const config = severityConfig[normalizedSeverity as keyof typeof severityConfig] || severityConfig.Medium;
   const Icon = config.icon;
 
   return (
@@ -44,13 +46,23 @@ export function DiagnosisCard({ diagnosis }: { diagnosis: DiagnosisResult }) {
           <div className="bg-hospital-blue-primary p-2 rounded-lg">
             <Activity className="h-5 w-5 text-white" />
           </div>
-          <h3 className="font-display text-lg font-bold text-gray-900">AI Diagnosis Report</h3>
+          <h3 className="font-display text-lg font-bold text-gray-900">Multimodal AI Diagnosis Report</h3>
         </div>
         <span className={`inline-flex items-center gap-2 text-xs font-black px-3 py-1.5 rounded-full ${config.color} text-white shadow-md`}>
           <Icon className="h-3.5 w-3.5" />
           {diagnosis.severity.toUpperCase()}
         </span>
       </div>
+
+      {/* Narrative Section (New for Multimodal) */}
+      {diagnosis.narrative && (
+        <div className="bg-muted/30 rounded-md p-3 border border-border/50">
+          <p className="text-xs font-medium text-primary uppercase tracking-wider mb-1">AI Reasoning</p>
+          <p className="text-sm text-foreground italic leading-relaxed">
+            "{diagnosis.narrative}"
+          </p>
+        </div>
+      )}
 
       {/* Disease Confidence */}
       <div className="space-y-4 mb-5">

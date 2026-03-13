@@ -24,50 +24,56 @@ async def analyze_symptoms(request: SymptomRequest):
             "advice": "Rest and hydration. Monitor for 48 hours."
         }
 
-    # Using a free open-weight model on HuggingFace Inference API
-    # Since we can't easily host a 773-class sklearn model directly on Vercel/Railway without
-    # bundling the pkl file, we'll use LLM zero-shot classification as a robust MVP.
-    API_URL = "https://api-inference.huggingface.co/models/mistralai/Mistral-7B-Instruct-v0.3"
-    headers = {"Authorization": f"Bearer {HF_API_KEY}"}
+    # Using the new HuggingFace Router API (OpenAI compatible)
+    API_URL = "https://router.huggingface.co/v1/chat/completions"
+    headers = {
+        "Authorization": f"Bearer {HF_API_KEY}",
+        "Content-Type": "application/json"
+    }
 
-    prompt = f"""[INST] You are an AI medical assistant for rural healthcare workers.
-Analyze these symptoms and provide the top 3 most likely diagnoses.
-Patient details: Age {request.age}, Gender {request.gender}
-Symptoms reported: {request.symptoms}
-
-Respond EXACTLY in this JSON format strictly:
-{{
-  "diagnoses": [
-    {{"name": "Disease 1", "confidence": 90}},
-    {{"name": "Disease 2", "confidence": 50}}
-  ],
-  "severity": "Low" | "Medium" | "URGENT",
-  "advice": "Short actionable advice for the healthcare worker"
-}}
-[/INST]"""
+    messages = [
+        {"role": "system", "content": "You are an AI medical assistant for rural healthcare workers. Respond only in valid JSON."},
+        {"role": "user", "content": f"Analyze these symptoms and provide the top 3 most likely diagnoses.\nPatient details: Age {request.age}, Gender {request.gender}\nSymptoms reported: {request.symptoms}\n\nRespond EXACTLY in this JSON format:\n{{\n  \"diagnoses\": [\n    {{\"name\": \"Disease 1\", \"confidence\": 90}},\n    {{\"name\": \"Disease 2\", \"confidence\": 50}}\n  ],\n  \"severity\": \"Low\" | \"Medium\" | \"URGENT\",\n  \"advice\": \"Short actionable advice\"\n}}"}
+    ]
 
     async with httpx.AsyncClient() as client:
         try:
+            print(f"Calling HF Router: {API_URL}")
             response = await client.post(
                 API_URL, 
                 headers=headers, 
-                json={"inputs": prompt, "parameters": {"max_new_tokens": 200, "temperature": 0.1, "return_full_text": False}}
+                json={
+                    "model": "mistralai/Mistral-7B-Instruct-v0.2",
+                    "messages": messages,
+                    "max_tokens": 500,
+                    "temperature": 0.1,
+                    "response_format": {"type": "json_object"}
+                },
+                timeout=45.0
             )
-            response.raise_for_status()
-            result_text = response.json()[0]["generated_text"].strip()
             
-            # Extract JSON from potential markdown blocks
-            if "```json" in result_text:
-                result_text = result_text.split("```json")[1].split("```")[0].strip()
-            elif "```" in result_text:
-                result_text = result_text.split("```")[1].split("```")[0].strip()
-                
+            if response.status_code == 503:
+                print("HF Router/Model is loading...")
+                return {
+                    "diagnoses": [{"name": "AI Model Loading", "confidence": 0}],
+                    "severity": "Unknown",
+                    "advice": "The AI model is currently spinning up. Please try again in 30 seconds."
+                }
+            
+            response.raise_for_status()
+            data = response.json()
+            
+            result_text = data["choices"][0]["message"]["content"].strip()
+            print(f"Raw router response: {result_text}")
+            
             return json.loads(result_text)
         except Exception as e:
-            print(f"Error calling HF API: {e}")
+            print(f"Error calling HF API: {str(e)}")
+            if hasattr(e, 'response'):
+                print(f"Response body: {e.response.text}")
             return {
-                "error": "Failed to analyze symptoms",
+                "error": str(e),
                 "diagnoses": [{"name": "Analysis Failed", "confidence": 0}],
                 "severity": "Unknown",
-                "advice": "Please consult a doctor directly."
+                "advice": "Please consult a doctor directly. Diagnostic service is temporarily down."
             }
