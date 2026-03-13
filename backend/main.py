@@ -16,9 +16,10 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-from routes import analyze, patients
+from routes import analyze, patients, profiles
 app.include_router(analyze.router)
 app.include_router(patients.router)
+app.include_router(profiles.router)
 
 @app.get("/health")
 def health_check():
