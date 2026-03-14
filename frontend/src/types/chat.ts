@@ -1,8 +1,28 @@
 export interface DiagnosisResult {
-  severity: "Urgent" | "Medium" | "Low" | "Unknown" | "URGENT";
-  diseases: { name: string; confidence: number }[];
-  advice: string;
-  narrative?: string;
+  severity?: "Urgent" | "Medium" | "Low";
+  top_conditions: { disease: string; probability: number }[];
+  explanation: string;
+  precautions: string[];
+  what_to_do: string[];
+  emergency_signs: string[];
+}
+
+export interface PrescriptionMedicine {
+  name: string;
+  dosage: string;
+  instructions: string;
+}
+
+export interface PrescriptionResult {
+  doctor: string;
+  clinic: string;
+  medicines: PrescriptionMedicine[];
+  precautions: string[];
+  summary: string;
+}
+
+export interface TriageResult {
+  questions: string[];
 }
 
 export interface ChatMessage {
@@ -10,6 +30,8 @@ export interface ChatMessage {
   role: "user" | "assistant";
   content: string;
   diagnosis?: DiagnosisResult;
+  prescription?: PrescriptionResult;
+  triage?: TriageResult;
   timestamp: Date;
 }
 

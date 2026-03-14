@@ -52,3 +52,12 @@ async def get_recent_sessions(limit: int = 10):
         return response.data
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
+@router.get("/{user_id}/history")
+async def get_patient_history(user_id: str, limit: int = 5):
+    try:
+        # Fetch up to `limit` past history records for the user
+        response = supabase.table("patient_history").select("*").eq("user_id", user_id).order("created_at", desc=True).limit(limit).execute()
+        return response.data
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))

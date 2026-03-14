@@ -2,18 +2,28 @@ import json
 import os
 import httpx
 from pydantic import BaseModel
+from dotenv import load_dotenv
+import google.generativeai as genai
+from google.api_core.exceptions import ResourceExhausted
 
-HF_API_KEY = os.environ.get("HUGGINGFACE_API_KEY")
+load_dotenv(".env", override=True)
+load_dotenv(".env.local", override=True)
+
+# Check for Gemini key
+API_KEY = os.environ.get("GEMINI_API_KEY")
+if API_KEY:
+    genai.configure(api_key=API_KEY)
 
 class SymptomRequest(BaseModel):
     symptoms: str
     age: int
     gender: str
+    history: list = []
 
 # In Phase 1, we simulate the 773-disease dataset model by hitting a lightweight instruct model 
 # to act as our clinical symptom-to-disease classifier.
 async def analyze_symptoms(request: SymptomRequest):
-    if not HF_API_KEY:
+    if not API_KEY:
         # Fallback for development without API key
         return {
             "diagnoses": [
@@ -24,56 +34,86 @@ async def analyze_symptoms(request: SymptomRequest):
             "advice": "Rest and hydration. Monitor for 48 hours."
         }
 
-    # Using the new HuggingFace Router API (OpenAI compatible)
-    API_URL = "https://router.huggingface.co/v1/chat/completions"
-    headers = {
-        "Authorization": f"Bearer {HF_API_KEY}",
-        "Content-Type": "application/json"
-    }
+    # Using Google Gemini-2.5-Flash since 1.5 threw a 404 locally.
+    # We configured it at the module level
+    model = genai.GenerativeModel("gemini-2.5-flash")
+    
+    system_prompt = "You are a strict medical AI assistant for the Sanjeevani web application. You must ONLY answer medical-related questions and analyze symptoms. If the user asks a non-medical question, politely refuse to answer. You must respond strictly in valid JSON format without markdown blocks."
+    
+    history_context = ""
+    if request.history:
+        history_context = "\n\nPrevious history:\n"
+        for record in request.history:
+            date = record.get("created_at", "").split("T")[0] if "created_at" in record else "Past"
+            symptoms = record.get("symptoms", "")
+            history_context += f"* {date}: {symptoms}\n"
+        history_context += "\nAnalyze both previous history and current symptoms and return a more personalized response."
 
-    messages = [
-        {"role": "system", "content": "You are an AI medical assistant for rural healthcare workers. Respond only in valid JSON."},
-        {"role": "user", "content": f"Analyze these symptoms and provide the top 3 most likely diagnoses.\nPatient details: Age {request.age}, Gender {request.gender}\nSymptoms reported: {request.symptoms}\n\nRespond EXACTLY in this JSON format:\n{{\n  \"diagnoses\": [\n    {{\"name\": \"Disease 1\", \"confidence\": 90}},\n    {{\"name\": \"Disease 2\", \"confidence\": 50}}\n  ],\n  \"severity\": \"Low\" | \"Medium\" | \"URGENT\",\n  \"advice\": \"Short actionable advice\"\n}}"}
-    ]
+    user_prompt = f"""Analyze these symptoms and provide the top 3 most probable diseases.
+If the input is not a medical query or symptom, set top_conditions to an empty array and put your refusal in the explanation.
 
-    async with httpx.AsyncClient() as client:
-        try:
-            print(f"Calling HF Router: {API_URL}")
-            response = await client.post(
-                API_URL, 
-                headers=headers, 
-                json={
-                    "model": "mistralai/Mistral-7B-Instruct-v0.2",
-                    "messages": messages,
-                    "max_tokens": 500,
-                    "temperature": 0.1,
-                    "response_format": {"type": "json_object"}
-                },
-                timeout=45.0
+Patient details: Age {request.age}, Gender {request.gender}{history_context}
+Current symptom(s) reported: {request.symptoms}
+
+Respond EXACTLY in this JSON format strictly. Nothing else:
+{{
+  "top_conditions": [
+    {{"disease": "Disease name", "probability": 90}},
+    {{"disease": "Disease name", "probability": 50}}
+  ],
+  "explanation": "short explanation of the likely conditions",
+  "precautions": [
+    "precaution 1",
+    "precaution 2"
+  ],
+  "what_to_do": [
+    "recommended action 1",
+    "recommended action 2"
+  ],
+  "emergency_signs": [
+    "symptom requiring urgent medical attention (if any)"
+  ]
+}}"""
+
+    try:
+        response = model.generate_content(
+            user_prompt,
+            generation_config=genai.types.GenerationConfig(
+                temperature=0.1,
+                response_mime_type="application/json"
             )
+        )
+        
+        result_text = response.text.strip()
+        
+        # Extract JSON from potential markdown blocks just in case
+        if "```json" in result_text:
+            result_text = result_text.split("```json")[1].split("```")[0].strip()
+        elif "```" in result_text:
+            result_text = result_text.split("```")[1].split("```")[0].strip()
             
-            if response.status_code == 503:
-                print("HF Router/Model is loading...")
-                return {
-                    "diagnoses": [{"name": "AI Model Loading", "confidence": 0}],
-                    "severity": "Unknown",
-                    "advice": "The AI model is currently spinning up. Please try again in 30 seconds."
-                }
-            
-            response.raise_for_status()
-            data = response.json()
-            
-            result_text = data["choices"][0]["message"]["content"].strip()
-            print(f"Raw router response: {result_text}")
-            
-            return json.loads(result_text)
-        except Exception as e:
-            print(f"Error calling HF API: {str(e)}")
-            if hasattr(e, 'response'):
-                print(f"Response body: {e.response.text}")
-            return {
-                "error": str(e),
-                "diagnoses": [{"name": "Analysis Failed", "confidence": 0}],
-                "severity": "Unknown",
-                "advice": "Please consult a doctor directly. Diagnostic service is temporarily down."
-            }
+        return json.loads(result_text)
+    except ResourceExhausted as e:
+        print("Gemini API Rate Limit Exceeded.")
+        return {
+            "top_conditions": [
+                {"disease": "API Rate Limit Exceeded", "probability": 0}
+            ],
+            "explanation": "⚠️ The Gemini AI service has exceeded its query quota. Please wait a few moments before trying again or upgrade your API key.",
+            "precautions": [],
+            "what_to_do": [],
+            "emergency_signs": []
+        }
+    except Exception as e:
+        import traceback
+        print("Gemini API Error in analyze_symptoms:")
+        traceback.print_exc()
+        return {
+            "top_conditions": [
+                {"disease": "Analysis Failed", "probability": 0}
+            ],
+            "explanation": "⚠️ Failed to reach the AI model. Please ensure the Gemini API key is correct and valid.",
+            "precautions": [],
+            "what_to_do": [],
+            "emergency_signs": []
+        }

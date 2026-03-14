@@ -17,7 +17,7 @@ async def analyze_medical_image(file: UploadFile):
 
     # For phase 1 MVP, we use a simple image classification model from HF
     # that handles general medical conditions.
-    API_URL = "https://router.huggingface.co/models/imfarzanansari/skintelligent-acne"
+    API_URL = "https://api-inference.huggingface.co/models/imfarzanansari/skintelligent-acne"
     headers = {"Authorization": f"Bearer {HF_API_KEY}"}
     
     try:
